@@ -108,10 +108,11 @@ function frame(){
     if(fresh&&m&&v&&v.dataset.err)status('Не знайдено відеофайл «'+m.src+'». Перевірте, що він лежить поруч зі сторінкою і названий саме так.');
     else if(fresh&&m&&v&&v.readyState>=2){
       // відео (пікселі) → зображення → координати маркера → екран
-      var vw=v.videoWidth,vh=v.videoHeight,pa=m.w/m.h,sw,sh,sx,sy; // «cover»: заповнюємо фото без спотворень, зайве обрізаємо
-      if(vw/vh>pa){sh=vh;sw=vh*pa;sx=(vw-sw)/2;sy=0;}else{sw=vw;sh=vw/pa;sx=0;sy=(vh-sh)/2;}
-      var k=[m.w/sw/m.r,0,-m.cx/m.r,0,m.h/sh/m.r,-m.cy/m.r],F=mul(pose,k);
-      vctx.save();vctx.transform(F[0],F[3],F[1],F[4],F[2],F[5]);vctx.drawImage(v,sx,sy,sw,sh,0,0,sw,sh);vctx.restore();
+      // відео вписується у фото ПОВНІСТЮ (без обрізання); решта площі фото затемнюється
+      var vw=v.videoWidth,vh=v.videoHeight,f=Math.min(m.w/vw,m.h/vh),ox=(m.w-vw*f)/2,oy=(m.h-vh*f)/2,
+          P=mul(pose,[1/m.r,0,-m.cx/m.r,0,1/m.r,-m.cy/m.r]);
+      vctx.save();vctx.transform(P[0],P[3],P[1],P[4],P[2],P[5]);
+      vctx.fillStyle='rgba(0,0,0,.92)';vctx.fillRect(0,0,m.w,m.h);vctx.drawImage(v,ox,oy,vw*f,vh*f);vctx.restore();
       status('Мітка №'+cur+' — відео відтворюється');}
     else if(fresh&&cur!==null&&!m)status('Мітку №'+cur+' прочитано, але для неї немає запису у videos.json');
     else if(fresh&&m)status('Мітка №'+cur+' — завантаження відео…');
@@ -120,6 +121,7 @@ function frame(){
 $('go').addEventListener('click',async function(){
   $('go').style.display='none';status('Завантаження…');
   try{table=await (await fetch('videos.json')).json();}catch(e){status('Не вдалося прочитати videos.json: '+e);return;}
+  Object.keys(table).forEach(function(k){fetch(table[k].src).catch(function(){});}); // заздалегідь підвантажуємо відео в кеш (допомагає, коли файл не оптимізований для веб)
   for(var id in table){var v=document.createElement('video');v.src=table[id].src;v.loop=true;v.playsInline=true;v.preload='auto';v.setAttribute('playsinline','');v.onerror=function(){this.dataset.err='1';};vids[id]=v;}
   for(var id2 in vids){var vv=vids[id2];try{vv.muted=false;await vv.play();vv.pause();vv.currentTime=0;}catch(e){vv.muted=true;}} // «розблокування» звуку жестом
   try{var s=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false});cam.srcObject=s;await cam.play();}
