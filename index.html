@@ -35,7 +35,7 @@ function findDisc(px,w,h){
     while(sp){var p=stack[--sp],x=p%w,y=(p/w)|0;area++;if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y;
       if(x>0&&mask[p-1]&&!lab[p-1]){lab[p-1]=nl;stack[sp++]=p-1;}if(x<w-1&&mask[p+1]&&!lab[p+1]){lab[p+1]=nl;stack[sp++]=p+1;}
       if(y>0&&mask[p-w]&&!lab[p-w]){lab[p-w]=nl;stack[sp++]=p-w;}if(y<h-1&&mask[p+w]&&!lab[p+w]){lab[p+w]=nl;stack[sp++]=p+w;}}
-    if(area>350)comps.push({id:nl,area:area,x0:x0,x1:x1,y0:y0,y1:y1});}
+    if(area>150)comps.push({id:nl,area:area,x0:x0,x1:x1,y0:y0,y1:y1});}
   comps.sort(function(a,b){return b.area-a.area;});
   for(var q=0;q<Math.min(4,comps.length);q++){var c=comps[q],S=0,Sx=0,Sy=0,Sxx=0,Sxy=0,Syy=0;
     for(var y=c.y0;y<=c.y1;y++){var a=-1,b=-1;for(var x=c.x0;x<=c.x1;x++)if(lab[y*w+x]===c.id){if(a<0)a=x;b=x;}
@@ -43,13 +43,14 @@ function findDisc(px,w,h){
     var mx=Sx/S,my=Sy/S,cxx=Sxx/S-mx*mx,cxy=Sxy/S-mx*my,cyy=Syy/S-my*my,
         th=.5*Math.atan2(2*cxy,cxx-cyy),tr=cxx+cyy,df=Math.sqrt(Math.max(0,(cxx-cyy)*(cxx-cyy)/4+cxy*cxy)),l1=tr/2+df,l2=tr/2-df;
     if(l2<=0)continue;var A=2*Math.sqrt(l1),B=2*Math.sqrt(l2);
-    if(S/(Math.PI*A*B)<.88||S/(Math.PI*A*B)>1.12||B/A<.45||A<14)continue;
+    if(S/(Math.PI*A*B)<.88||S/(Math.PI*A*B)>1.12||B/A<.45||A<7)continue;
     return {cx:mx,cy:my,a:A,b:B,e1:[Math.cos(th),Math.sin(th)]};}
   return null;}
 
 // 2) випрямлення і зчитування кільця; повертає {id,T} де T — матриця маркер→екран
-function readMarker(px,w,h){
+function readMarker(px,w,h,PH,WH,HH){
   var E=findDisc(px,w,h);if(!E)return null;
+  var kk=WH/w;E={cx:E.cx*kk,cy:E.cy*kk,a:E.a*kk,b:E.b*kk,e1:E.e1};px=PH;w=WH;h=HH;window.lastDiam=Math.round(E.a+E.b);
   var e1=E.e1,e2=[-e1[1],e1[0]],Y=new Float32Array(160000),u,v;
   for(v=0;v<400;v++)for(u=0;u<400;u++){var rx=(u-200)/200,ry=(v-200)/200;if(rx*rx+ry*ry>1.04)continue;
     var X=Math.round(E.cx+rx*E.a*e1[0]+ry*E.b*e2[0]),Z=Math.round(E.cy+rx*E.a*e1[1]+ry*E.b*e2[1]);if(X<0||Z<0||X>=w||Z>=h)continue;
@@ -82,24 +83,28 @@ function readMarker(px,w,h){
 var $=function(i){return document.getElementById(i);};
 var cam=$('cam'),view=$('view'),vctx=view.getContext('2d'),work=document.createElement('canvas'),wctx=work.getContext('2d',{willReadFrequently:true});
 var table={},vids={},cur=null,seen=0,pose=null,candidate=null,busy=false;
-function status(t){$('st').textContent=t;}
+function status(t){if(/debug/.test(location.search)&&window.stats)t+='  [мітка ≈'+(window.lastDiam||0)+' px, читань '+stats.hits+'/'+stats.tries+']';$('st').textContent=t;}
 function mul(M,Nn){ // M·Nn для афінних 2×3 (як 3×3)
   return [M[0]*Nn[0]+M[1]*Nn[3],M[0]*Nn[1]+M[1]*Nn[4],M[0]*Nn[2]+M[1]*Nn[5]+M[2],M[3]*Nn[0]+M[4]*Nn[3],M[3]*Nn[1]+M[4]*Nn[4],M[3]*Nn[2]+M[4]*Nn[5]+M[5]];}
+var hiCv=document.createElement('canvas'),hiCtx=hiCv.getContext('2d',{willReadFrequently:true}),stats={tries:0,hits:0},GRACE=2500,lastId=null,pausedAt=0;
 function tick(){
   if(busy||cam.readyState<2){return;}busy=true;
-  var sc=PROC_W/cam.videoWidth;work.width=PROC_W;work.height=Math.round(cam.videoHeight*sc);wctx.drawImage(cam,0,0,work.width,work.height);
-  var d=wctx.getImageData(0,0,work.width,work.height),r=null;try{r=readMarker(d.data,work.width,work.height);}catch(e){}
-  if(r){var ok=candidate&&candidate.id===r.id;candidate={id:r.id};
-    if(ok||cur===r.id){var T=r.T.map(function(x,i){return x;}); // перехід до координат відео-кадру
-      T=[T[0]/sc,T[1]/sc,T[2]/sc,T[3]/sc,T[4]/sc,T[5]/sc];
+  var vw=cam.videoWidth,vh=cam.videoHeight,sc=PROC_W/vw,HW=Math.min(1280,vw),sH=HW/vw;
+  work.width=PROC_W;work.height=Math.round(vh*sc);wctx.drawImage(cam,0,0,work.width,work.height);
+  hiCv.width=HW;hiCv.height=Math.round(vh*sH);hiCtx.drawImage(cam,0,0,hiCv.width,hiCv.height);
+  var dl=wctx.getImageData(0,0,work.width,work.height),dh=hiCtx.getImageData(0,0,hiCv.width,hiCv.height),r=null;
+  try{r=readMarker(dl.data,work.width,work.height,dh.data,hiCv.width,hiCv.height);}catch(e){}
+  stats.tries++;
+  if(r){stats.hits++;var ok=candidate&&candidate.id===r.id;candidate={id:r.id};
+    if(ok||cur===r.id){var T=r.T.map(function(x){return x/sH;}); // у координати відеокадру
       if(pose&&cur===r.id)T=T.map(function(x,i){return .5*x+.5*pose[i];});
       pose=T;seen=performance.now();setCurrent(r.id);}}
   else candidate=null;
-  busy=false;}
-function setCurrent(id){if(cur===id)return;cur=id;for(var k in vids)if(+k!==id)vids[k].pause();var v=vids[id];if(v){v.currentTime=0;v.play().catch(function(){v.muted=true;v.play();});}}
+  window.stats=stats;busy=false;}
+function setCurrent(id){if(cur===id)return;var resume=(id===lastId&&performance.now()-pausedAt<10000);cur=id;for(var k in vids)if(+k!==id)vids[k].pause();var v=vids[id];if(v){if(!resume)v.currentTime=0;v.play().catch(function(){v.muted=true;v.play();});}}
 function frame(){
   if(cam.videoWidth){if(view.width!==cam.videoWidth){view.width=cam.videoWidth;view.height=cam.videoHeight;}vctx.drawImage(cam,0,0);
-    var fresh=pose&&performance.now()-seen<1200,m=cur!==null?table[cur]:null,v=cur!==null?vids[cur]:null;
+    var fresh=pose&&performance.now()-seen<GRACE,m=cur!==null?table[cur]:null,v=cur!==null?vids[cur]:null;
     if(fresh&&m&&v&&v.dataset.err)status('Не знайдено відеофайл «'+m.src+'». Перевірте, що він лежить поруч зі сторінкою і названий саме так.');
     else if(fresh&&m&&v&&v.readyState>=2){
       // відео (пікселі) → зображення → координати маркера → екран
@@ -110,7 +115,7 @@ function frame(){
       status('Мітка №'+cur+' — відео відтворюється');}
     else if(fresh&&cur!==null&&!m)status('Мітку №'+cur+' прочитано, але для неї немає запису у videos.json');
     else if(fresh&&m)status('Мітка №'+cur+' — завантаження відео…');
-    else{if(cur!==null){if(v)v.pause();cur=null;}status('Наведіть камеру на фото з міткою (усю мітку має бути видно).');}}
+    else{if(cur!==null){if(v)v.pause();lastId=cur;pausedAt=performance.now();cur=null;}status('Наведіть камеру на фото з міткою (усю мітку має бути видно).');}}
   requestAnimationFrame(frame);}
 $('go').addEventListener('click',async function(){
   $('go').style.display='none';status('Завантаження…');
