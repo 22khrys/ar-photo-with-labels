@@ -68,10 +68,14 @@ function readMarker(px,w,h,PH,WH,HH){
       if(s2/3>.4){last=r;gap=0;}else{gap+=.7;if(gap>3)break;}}
     lens.push((last-R_IN)/SPAN);}
   var si=0;for(k=1;k<N;k++)if(lens[k]>lens[si])si=k;if(lens[si]<.88)return null;
+  // захист від хибних зчитувань: стартовий промінь має помітно виділятися, а жоден промінь не має бути «відсутнім»
+  var second=0;for(k=0;k<N;k++)if(k!==si&&lens[k]>second)second=lens[k];
+  if(lens[si]-second<.1)return null;
+  for(k=0;k<N;k++)if(k!==si&&lens[k]<.12)return null;
   var thr=(L_SHORT+L_LONG)/2,val=0,cr=0;
   for(k=1;k<=IDBITS;k++)val=val*2+(lens[(si+k)%N]>thr?1:0);
   for(k=IDBITS+1;k<N;k++)cr=cr*2+(lens[(si+k)%N]>thr?1:0);
-  if(crc8(val)!==cr)return null;
+  if(crc8(val)!==cr||val===0)return null;
   var D=phase+2*Math.PI*si/N+Math.PI/2,cD=Math.cos(D),sD=Math.sin(D); // поворот маркера
   // маркер (одиниці радіуса диска) → екран: E + A·((cx-200)/200,(cy-200)/200) + A·R(D)·m
   var A=[[E.a*e1[0],E.b*e2[0]],[E.a*e1[1],E.b*e2[1]]],ox=(cx-200)/200,oy=(cy-200)/200;
